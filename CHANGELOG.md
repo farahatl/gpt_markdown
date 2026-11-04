@@ -1,3 +1,71 @@
+## Unreleased
+
+### Added
+
+* `revealStyleFor` and `applyReveal` take optional `accent` and `fontSize`;
+  `RevealEngine` exposes `window`, `fadingFrom` and `maxFadeWindow`.
+
+### Changed
+
+* The `wave` and `blurIn` animations now look like what they describe.
+  `wave`'s crest takes the hue of the theme's `ColorScheme.primary`, made
+  vivid and kept clearly lighter or darker than the text — it was a grey
+  derived from the text colour, hard to tell from `fade`. `blurIn` stays
+  soft while the text is already visible, and its blur scales with the font
+  size; the blur used to be over before the text could be seen.
+
+### Fixed
+
+* Streaming: a character's entrance is no longer cut short when more than
+  64 characters are arriving at once — which the defaults (300 chars/s for
+  0.25 s) already exceeded. The window now grows with the reveal speed, up
+  to 256.
+* Streaming: tables, code blocks and formulas no longer play their block
+  animation a second time once the reply goes quiet (or after a pause in
+  the stream), and a `$$` block whose closing `$$` arrives split across
+  chunks no longer flashes its raw TeX.
+* Streaming: a display formula no longer drops back to raw TeX for a moment
+  as it closes. Markdown-like characters inside the TeX (the `_` in
+  `(z)_i`) were read as emphasis and held the formula back.
+
+## 1.4.0
+
+### Added
+
+* **CommonMark 0.31.2 conformance**, checked in CI: 530 of 652 spec examples
+  pass; the rest are documented choices. See
+  [CommonMark conformance](docs/commonmark.md).
+* **HTML support.** Common tags render as what they mean — formatting,
+  links, images, headings, quotes, code, lists, checkboxes — wrappers like
+  `<div>` are dropped and `<script>` is hidden. HTML tables support
+  `colspan`, `rowspan`, `<thead>`/`<tfoot>` and `<caption>`, and inline
+  `<svg>` renders as a drawing. `htmlTags` adds, remaps or removes tags;
+  `html: false` turns HTML off. See
+  [HTML tags](docs/custom-components.md#html-tags).
+* **SVG images**, including shields.io badges, and every HTML5 named entity.
+* New nodes and styles: `MdSuperscript`, `MdSubscript`, `MdHighlight`,
+  `ScriptStyle`, `HighlightStyle`; plus `MdUnorderedList.loose`,
+  `MdOrderedList.loose`, `MdLink.autolink`,
+  `MarkdownDefinitions.definesFootnote` and `imageSpan(onTap:)`.
+
+### Changed
+
+* **Breaking:** migrated to [`material_ui`](https://pub.dev/packages/material_ui)
+  (#152); the minimum SDK is now Dart 3.12 and Flutter 3.44.
+* Lists, quotes, links, emphasis and footnotes follow CommonMark and GitHub,
+  so some replies parse differently. Dollar maths
+  (`useDollarSignsForLatex`) now treats a `$…$` pair as maths unless both
+  dollars are clearly prices. See [Migration](MIGRATION.md).
+
+### Fixed
+
+* HTML tags: a stray opening tag no longer stops later tags of the same name
+  from rendering.
+* Streaming: no layout jumps for tables and block maths, no broken emojis
+  mid-reveal.
+* Lists, link definitions, indented fences, image links and inline
+  directives inside code now render correctly.
+
 ## 1.3.4
 
 ### Changed

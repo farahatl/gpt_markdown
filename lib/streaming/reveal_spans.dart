@@ -115,8 +115,8 @@ int _count(InlineSpan span) {
 ///   nothing below the reading position is laid out before it is meant to be
 ///   seen, and nothing pops in there later.
 ///
-/// [styleBuilder], when given, styles the arriving characters in place of
-/// [revealStyleFor].
+/// [accent] and [fontSize] are passed through to [revealStyleFor], or to
+/// [styleBuilder] in its place when one is given.
 List<InlineSpan> applyReveal({
   required List<InlineSpan> spans,
   required int revealed,
@@ -124,6 +124,8 @@ List<InlineSpan> applyReveal({
   required double Function(int index) progressFor,
   required Color defaultColor,
   int window = 64,
+  Color? accent,
+  double? fontSize,
   RevealStyleBuilder? styleBuilder,
 }) {
   final from = effect.animatesCharacters ? revealed - window : revealed;
@@ -137,6 +139,8 @@ List<InlineSpan> applyReveal({
     effect: effect,
     progressFor: progressFor,
     inheritedColor: defaultColor,
+    accent: accent,
+    fontSize: fontSize,
     styleBuilder: styleBuilder,
   );
   return out;
@@ -156,6 +160,8 @@ void _walk({
   required GptMarkdownAnimation effect,
   required double Function(int index) progressFor,
   required Color inheritedColor,
+  Color? accent,
+  double? fontSize,
   RevealStyleBuilder? styleBuilder,
 }) {
   for (final span in spans) {
@@ -193,6 +199,8 @@ void _walk({
             effect: effect,
             progressFor: progressFor,
             inheritedColor: inheritedColor,
+            accent: accent,
+            fontSize: fontSize,
             styleBuilder: styleBuilder,
           );
           return revealedInner;
@@ -227,6 +235,8 @@ void _walk({
         progressFor: progressFor,
         color: color,
         recognizer: span.recognizer,
+        accent: accent,
+        fontSize: fontSize,
         styleBuilder: styleBuilder,
       );
     }
@@ -241,6 +251,8 @@ void _walk({
         effect: effect,
         progressFor: progressFor,
         inheritedColor: color,
+        accent: accent,
+        fontSize: fontSize,
         styleBuilder: styleBuilder,
       );
     }
@@ -310,6 +322,8 @@ void _emitText({
   required double Function(int index) progressFor,
   required Color color,
   GestureRecognizer? recognizer,
+  Color? accent,
+  double? fontSize,
   RevealStyleBuilder? styleBuilder,
 }) {
   final start = cursor.value;
@@ -327,9 +341,17 @@ void _emitText({
     return;
   }
 
-  final settledEnd = settledBelow < start ? start : settledBelow;
+  // Both boundaries are counts of UTF-16 units, so either can fall between
+  // the two halves of an emoji. Half of one is not a character, and the
+  // engine throws laying it out, so a boundary inside a pair moves back to
+  // before it: the emoji appears whole, a frame later.
+  final settledEnd = _pairStart(
+    text,
+    start,
+    settledBelow < start ? start : settledBelow,
+  );
 
-  final limit = end < revealed ? end : revealed;
+  final limit = _pairStart(text, start, end < revealed ? end : revealed);
   var i = settledEnd;
   // Pieces needing no style of their own are gathered into one span rather
   // than emitted singly: a piece whose entrance is over is drawn exactly as
@@ -347,6 +369,24 @@ void _emitText({
         ),
       );
       plainFrom = -1;
+    }
+  }
+
+  // The run of groups mid-entrance at the same progress step, emitted as one
+  // styled span.
+  var pieceFrom = -1;
+  var pieceLevel = -1;
+  TextStyle? pieceStyle;
+  void flushPiece(int until) {
+    if (pieceFrom >= 0) {
+      out.add(
+        TextSpan(
+          text: text.substring(pieceFrom - start, until - start),
+          style: pieceStyle,
+          recognizer: recognizer,
+        ),
+      );
+      pieceFrom = -1;
     }
   }
 
@@ -376,34 +416,61 @@ void _emitText({
       // as the edge advances, the next.
       anchor = i == settledEnd ? _wordStart(text, start, i) : i;
     }
-    final progress = progressFor(anchor);
-    final delta = styleBuilder == null
-        ? revealStyleFor(effect, progress, color)
-        : styleBuilder(
-            RevealStyleDetails(
-              effect: effect,
-              progress: progress,
-              color: color,
-            ),
-          );
-    if (delta == null) {
+    final level = (progressFor(anchor) * _progressLevels).floor();
+    if (level >= _progressLevels) {
+      flushPiece(i);
       if (plainFrom < 0) {
         plainFrom = i;
       }
+    } else if (pieceFrom >= 0 && level == pieceLevel) {
+      // Same step of the same entrance as the group before it: one span.
     } else {
-      flushPlain(i);
-      out.add(
-        TextSpan(
-          text: text.substring(i - start, next - start),
-          style: delta,
-          recognizer: recognizer,
-        ),
-      );
+      final progress = level / _progressLevels;
+      final delta = styleBuilder == null
+          ? revealStyleFor(
+              effect,
+              progress,
+              color,
+              accent: accent,
+              fontSize: fontSize,
+            )
+          : styleBuilder(
+              RevealStyleDetails(
+                effect: effect,
+                progress: progress,
+                color: color,
+                accent: accent,
+                fontSize: fontSize,
+              ),
+            );
+      flushPiece(i);
+      if (delta == null) {
+        if (plainFrom < 0) {
+          plainFrom = i;
+        }
+      } else {
+        flushPlain(i);
+        pieceFrom = i;
+        pieceLevel = level;
+        pieceStyle = delta;
+      }
     }
     i = next;
   }
+  flushPiece(limit);
   flushPlain(limit);
 }
+
+/// Steps an entrance's progress is rounded to before it is styled.
+///
+/// Neighbouring characters revealed within a few milliseconds of each other
+/// round to the same step and share one span, instead of each carrying a
+/// style of its own. At speed that is most of them: a 1200 chars/s reveal
+/// has hundreds of characters mid-entrance, and one span apiece made every
+/// frame lay out hundreds of runs. A step is 1/32 of the entrance — less than
+/// one frame's change for any entrance under half a second, and a 3% change
+/// in opacity or colour beyond that.
+const int _progressLevels = 32;
 
 /// One reveal group: any leading whitespace, then the word after it.
 ///
@@ -436,3 +503,13 @@ bool _isSpace(int codeUnit) =>
     codeUnit == 0x0D;
 
 bool _isHighSurrogate(int codeUnit) => (codeUnit & 0xFC00) == 0xD800;
+
+/// [index] — an offset in the document, [text] starting at [start] — moved
+/// back by one when it falls between a surrogate pair's halves.
+int _pairStart(String text, int start, int index) {
+  final local = index - start;
+  if (local <= 0 || local >= text.length) {
+    return index;
+  }
+  return _isHighSurrogate(text.codeUnitAt(local - 1)) ? index - 1 : index;
+}
