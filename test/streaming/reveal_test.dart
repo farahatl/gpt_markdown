@@ -25,6 +25,7 @@ Future<void> _pump(
   GptMarkdownBlockAnimation block = GptMarkdownBlockAnimation.none,
   bool isStreaming = true,
   double charactersPerSecond = 120,
+  RevealStyleBuilder? revealStyleBuilder,
 }) async {
   Widget app(String t) => MaterialApp(
     home: Scaffold(
@@ -38,6 +39,7 @@ Future<void> _pump(
             blockAnimation: block,
             isStreaming: isStreaming,
             charactersPerSecond: charactersPerSecond,
+            revealStyleBuilder: revealStyleBuilder,
           ),
         ),
       ),
@@ -193,6 +195,66 @@ void main() {
       while (tester.takeException() != null) {}
 
       expect(_painted(tester), greaterThan(0));
+    });
+
+    testWidgets('revealStyleBuilder draws the characters still arriving', (
+      tester,
+    ) async {
+      tester.view.physicalSize = const Size(900, 3000);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+
+      const marker = Color(0xFF00C853);
+      final asked = <RevealStyleDetails>[];
+      await _pump(
+        tester,
+        _doc,
+        animation: GptMarkdownAnimation.blurIn,
+        revealStyleBuilder: (details) {
+          asked.add(details);
+          return TextStyle(color: marker.withValues(alpha: details.progress));
+        },
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 200));
+      while (tester.takeException() != null) {}
+
+      expect(asked, isNotEmpty);
+      expect(
+        asked.every((d) => d.effect == GptMarkdownAnimation.blurIn),
+        isTrue,
+      );
+      expect(asked.every((d) => d.progress >= 0 && d.progress < 1), isTrue);
+      // The builder's style replaces blurIn's: no mask filter, and a ramp in
+      // the builder's colour instead.
+      expect(_painted(tester), 0);
+      expect(_alphas(tester).length, greaterThan(3));
+
+      await tester.pump(const Duration(seconds: 5));
+      expect(_shows('Final paragraph.'), isTrue);
+      expect(_alphas(tester).where((a) => a < 1), isEmpty);
+    });
+
+    testWidgets('typewriter never asks revealStyleBuilder', (tester) async {
+      tester.view.physicalSize = const Size(900, 3000);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+
+      var asked = 0;
+      await _pump(
+        tester,
+        _doc,
+        animation: GptMarkdownAnimation.typewriter,
+        revealStyleBuilder: (_) {
+          asked += 1;
+          return null;
+        },
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 250));
+      while (tester.takeException() != null) {}
+
+      expect(asked, 0);
     });
 
     testWidgets('every effect ends with the complete document', (tester) async {
@@ -637,6 +699,71 @@ void main() {
         expect(runs, 1, reason: '$effect broke the chip into pieces');
         expect(characters, 'npm install'.length, reason: '$effect');
       }
+    });
+  });
+
+  group('revealStyleBuilder', () {
+    const color = Color(0xFF202124);
+
+    test('defaultStyle is the effect\'s own style', () {
+      for (final effect in GptMarkdownAnimation.values) {
+        // Compared as text: blurIn's Paint has no value equality.
+        expect(
+          RevealStyleDetails(
+            effect: effect,
+            progress: 0.4,
+            color: color,
+          ).defaultStyle().toString(),
+          revealStyleFor(effect, 0.4, color).toString(),
+          reason: effect.name,
+        );
+      }
+    });
+
+    test('styles each word in place of the effect', () {
+      final asked = <RevealStyleDetails>[];
+      final out = applyReveal(
+        spans: const [TextSpan(text: 'one two')],
+        revealed: 7,
+        effect: GptMarkdownAnimation.fade,
+        // The second word's group starts at the space before it.
+        progressFor: (index) => index < 3 ? 0.5 : 0.25,
+        defaultColor: color,
+        styleBuilder: (details) {
+          asked.add(details);
+          return const TextStyle(letterSpacing: 2);
+        },
+      );
+      // One call per word, at that word's progress, in its settled colour.
+      expect(asked.map((d) => d.progress), [0.5, 0.25]);
+      expect(asked.every((d) => d.color == color), isTrue);
+      final pieces = (out.single as TextSpan).children ?? out;
+      expect(
+        pieces.whereType<TextSpan>().map((s) => s.style?.letterSpacing),
+        everyElement(2),
+      );
+    });
+
+    test('returning null leaves the text as it will settle', () {
+      final out = applyReveal(
+        spans: const [TextSpan(text: 'one two')],
+        revealed: 7,
+        effect: GptMarkdownAnimation.fade,
+        progressFor: (_) => 0.5,
+        defaultColor: color,
+        styleBuilder: (_) => null,
+      );
+      expect(TextSpan(children: out).toPlainText(), 'one two');
+      expect(
+        out.whereType<TextSpan>().every(
+          (s) =>
+              s.style == null &&
+              (s.children ?? []).whereType<TextSpan>().every(
+                (c) => c.style == null,
+              ),
+        ),
+        isTrue,
+      );
     });
   });
 }

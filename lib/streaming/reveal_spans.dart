@@ -114,6 +114,9 @@ int _count(InlineSpan span) {
 /// * **Unrevealed** — dropped. The document ends where the reveal is, so
 ///   nothing below the reading position is laid out before it is meant to be
 ///   seen, and nothing pops in there later.
+///
+/// [styleBuilder], when given, styles the arriving characters in place of
+/// [revealStyleFor].
 List<InlineSpan> applyReveal({
   required List<InlineSpan> spans,
   required int revealed,
@@ -121,6 +124,7 @@ List<InlineSpan> applyReveal({
   required double Function(int index) progressFor,
   required Color defaultColor,
   int window = 64,
+  RevealStyleBuilder? styleBuilder,
 }) {
   final from = effect.animatesCharacters ? revealed - window : revealed;
   final out = <InlineSpan>[];
@@ -133,6 +137,7 @@ List<InlineSpan> applyReveal({
     effect: effect,
     progressFor: progressFor,
     inheritedColor: defaultColor,
+    styleBuilder: styleBuilder,
   );
   return out;
 }
@@ -151,6 +156,7 @@ void _walk({
   required GptMarkdownAnimation effect,
   required double Function(int index) progressFor,
   required Color inheritedColor,
+  RevealStyleBuilder? styleBuilder,
 }) {
   for (final span in spans) {
     if (cursor.value >= revealed) {
@@ -187,6 +193,7 @@ void _walk({
             effect: effect,
             progressFor: progressFor,
             inheritedColor: inheritedColor,
+            styleBuilder: styleBuilder,
           );
           return revealedInner;
         }),
@@ -220,6 +227,7 @@ void _walk({
         progressFor: progressFor,
         color: color,
         recognizer: span.recognizer,
+        styleBuilder: styleBuilder,
       );
     }
     final children = span.children;
@@ -233,6 +241,7 @@ void _walk({
         effect: effect,
         progressFor: progressFor,
         inheritedColor: color,
+        styleBuilder: styleBuilder,
       );
     }
     if (pieces.isEmpty) {
@@ -301,6 +310,7 @@ void _emitText({
   required double Function(int index) progressFor,
   required Color color,
   GestureRecognizer? recognizer,
+  RevealStyleBuilder? styleBuilder,
 }) {
   final start = cursor.value;
   final end = start + text.length;
@@ -366,7 +376,16 @@ void _emitText({
       // as the edge advances, the next.
       anchor = i == settledEnd ? _wordStart(text, start, i) : i;
     }
-    final delta = revealStyleFor(effect, progressFor(anchor), color);
+    final progress = progressFor(anchor);
+    final delta = styleBuilder == null
+        ? revealStyleFor(effect, progress, color)
+        : styleBuilder(
+            RevealStyleDetails(
+              effect: effect,
+              progress: progress,
+              color: color,
+            ),
+          );
     if (delta == null) {
       if (plainFrom < 0) {
         plainFrom = i;
