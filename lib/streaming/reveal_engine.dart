@@ -47,7 +47,11 @@ class RevealEngine {
   /// only the last [fadeWindow] of them instead of all of them.
   ///
   /// A power of two, so the ring index is a mask rather than a modulo.
-  static const int fadeWindow = 64;
+  ///
+  /// 256 rather than 64: a longer fade at a reading pace (0.45 s at
+  /// 170 chars/s is 77 characters) had its oldest words cut short. Upstream
+  /// 1.4.1 grows the window with the reveal speed instead.
+  static const int fadeWindow = 256;
   static const int _mask = fadeWindow - 1;
 
   /// How long one character takes to finish its entrance.
