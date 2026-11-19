@@ -4,8 +4,19 @@
 
 * `revealStyleFor` and `applyReveal` take optional `accent` and `fontSize`;
   `RevealEngine` exposes `window`, `fadingFrom` and `maxFadeWindow`.
+* `GptMarkdown.onRevealComplete` is called once a finished reply's reveal
+  has nothing left to show, so whatever accompanies the reveal can stay
+  until it is over.
+* `GptMarkdown.revealMaxLagSeconds` and `revealFinishSeconds` set how far the
+  reveal may trail a fast stream and how long it takes to show the rest once
+  streaming ends; `RevealEngine` takes them as `maxLagSeconds` and
+  `fastForwardSeconds`.
 
 ### Changed
+
+* **Breaking:** `RevealEngine.maxLagSeconds` and `fastForwardSeconds` are now
+  per-engine settings; the old defaults are `defaultMaxLagSeconds` and
+  `defaultFastForwardSeconds`.
 
 * The `wave` and `blurIn` animations now look like what they describe.
   `wave`'s crest takes the hue of the theme's `ColorScheme.primary`, made

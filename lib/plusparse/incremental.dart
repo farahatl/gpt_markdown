@@ -62,7 +62,10 @@ class _IncrementalMdView extends StatefulWidget {
     this.revealing = false,
     this.charactersPerSecond = 300,
     this.revealFadeSeconds = 0.25,
+    this.revealMaxLagSeconds = RevealEngine.defaultMaxLagSeconds,
+    this.revealFinishSeconds = RevealEngine.defaultFastForwardSeconds,
     this.revealStyleBuilder,
+    this.onRevealComplete,
     this.blockAnimationDuration = const Duration(milliseconds: 200),
     this.blockAnimationCurve = Curves.easeOut,
     this.holdMathDollars = false,
@@ -87,9 +90,14 @@ class _IncrementalMdView extends StatefulWidget {
 
   final double charactersPerSecond;
   final double revealFadeSeconds;
+  final double revealMaxLagSeconds;
+  final double revealFinishSeconds;
 
   /// Styles the characters still arriving in place of [effect]'s own look.
   final RevealStyleBuilder? revealStyleBuilder;
+
+  /// See [GptMarkdown.onRevealComplete].
+  final VoidCallback? onRevealComplete;
 
   final Duration blockAnimationDuration;
   final Curve blockAnimationCurve;
@@ -167,8 +175,29 @@ class _IncrementalMdViewState extends State<_IncrementalMdView>
   /// reader who is not using one pays nothing for it.
   final Map<(int, String), String> _plainText = {};
 
-  late RevealEngine _engine = RevealEngine(
+  late RevealEngine _engine = _newEngine();
+
+  /// Whether [_IncrementalMdView.onRevealComplete] has been called for the
+  /// reply as it stands; cleared when more text arrives or it streams again.
+  bool _completeReported = false;
+
+  /// Reports a finished reveal once, after the frame: the owner typically
+  /// rebuilds in response, which it cannot do from inside this one's build or
+  /// tick.
+  void _reportComplete() {
+    if (_completeReported || widget.isStreaming) return;
+    _completeReported = true;
+    final callback = widget.onRevealComplete;
+    if (callback == null) return;
+    SchedulerBinding.instance.addPostFrameCallback((_) {
+      if (mounted) callback();
+    });
+  }
+
+  RevealEngine _newEngine() => RevealEngine(
     fadeSeconds: widget.revealFadeSeconds,
+    maxLagSeconds: widget.revealMaxLagSeconds,
+    fastForwardSeconds: widget.revealFinishSeconds,
   );
   Ticker? _ticker;
   Duration _lastElapsed = Duration.zero;
@@ -227,6 +256,9 @@ class _IncrementalMdViewState extends State<_IncrementalMdView>
   @override
   void didUpdateWidget(covariant _IncrementalMdView oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (widget.isStreaming || widget.text != oldWidget.text) {
+      _completeReported = false;
+    }
     if (widget.text != oldWidget.text &&
         widget.text.startsWith(oldWidget.text)) {
       _noteArrival();
@@ -251,8 +283,10 @@ class _IncrementalMdViewState extends State<_IncrementalMdView>
     if (!oldWidget.config.isSame(widget.config)) {
       _dropCaches();
     }
-    if (widget.revealFadeSeconds != oldWidget.revealFadeSeconds) {
-      _engine = RevealEngine(fadeSeconds: widget.revealFadeSeconds);
+    if (widget.revealFadeSeconds != oldWidget.revealFadeSeconds ||
+        widget.revealMaxLagSeconds != oldWidget.revealMaxLagSeconds ||
+        widget.revealFinishSeconds != oldWidget.revealFinishSeconds) {
+      _engine = _newEngine();
     }
 
     if (!widget.revealing) {
@@ -376,7 +410,10 @@ class _IncrementalMdViewState extends State<_IncrementalMdView>
     final keepGoing = _engine.tick(dt, _total, widget.charactersPerSecond);
     final after = _engine.revealedFloor;
     final visibleAfter = _visibleCount(after);
-    if (!keepGoing) _stopTicking();
+    if (!keepGoing) {
+      _stopTicking();
+      _reportComplete();
+    }
     if (!_motionEnabled) return;
     // Only crossing a segment boundary changes the document's child list.
     // Inside a segment, notify just the active reveal/fade window.
@@ -984,8 +1021,11 @@ class _IncrementalMdViewState extends State<_IncrementalMdView>
     if (revealing &&
         (_engine.revealedFloor < _total || _engine.tailStillFading)) {
       _startTicking();
-    } else if (!revealing) {
-      _stopTicking();
+    } else {
+      if (!revealing) _stopTicking();
+      // Nothing left to reveal: whole from the start, or already caught up
+      // and settled when the stream ended.
+      _reportComplete();
     }
 
     final column = Column(

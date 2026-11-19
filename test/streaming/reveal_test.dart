@@ -197,6 +197,62 @@ void main() {
       expect(_painted(tester), greaterThan(0));
     });
 
+    testWidgets('onRevealComplete fires once the reveal is over, not when '
+        'the stream ends', (tester) async {
+      var completed = 0;
+      Widget app(String text, {required bool streaming}) => MaterialApp(
+        home: Scaffold(
+          body: SizedBox(
+            width: 600,
+            child: GptMarkdown(
+              text,
+              animation: GptMarkdownAnimation.fade,
+              isStreaming: streaming,
+              charactersPerSecond: 50,
+              revealMaxLagSeconds: 4,
+              revealFinishSeconds: 2,
+              onRevealComplete: () => completed++,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpWidget(app('', streaming: true));
+      const text =
+          'A reply long enough to still be revealing when the '
+          'stream ends, so the reveal outlasts it.';
+      await tester.pumpWidget(app(text, streaming: true));
+      await tester.pump(const Duration(milliseconds: 100));
+      // The stream ends while most of the reply is still to come.
+      await tester.pumpWidget(app(text, streaming: false));
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(completed, 0, reason: 'the reveal is still under way');
+      await tester.pumpAndSettle();
+      expect(completed, 1);
+      // Rebuilding a finished reply does not report it again.
+      await tester.pumpWidget(app(text, streaming: false));
+      await tester.pumpAndSettle();
+      expect(completed, 1);
+    });
+
+    testWidgets('onRevealComplete is not called while the reply streams, even '
+        'when the reveal has caught up', (tester) async {
+      var completed = 0;
+      Widget app(String text) => MaterialApp(
+        home: Scaffold(
+          body: GptMarkdown(
+            text,
+            animation: GptMarkdownAnimation.fade,
+            isStreaming: true,
+            onRevealComplete: () => completed++,
+          ),
+        ),
+      );
+      await tester.pumpWidget(app(''));
+      await tester.pumpWidget(app('Short.'));
+      await tester.pumpAndSettle();
+      expect(completed, 0);
+    });
+
     testWidgets('revealStyleBuilder draws the characters still arriving', (
       tester,
     ) async {

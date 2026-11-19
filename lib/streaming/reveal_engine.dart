@@ -29,14 +29,32 @@ import 'dart:typed_data';
 class RevealEngine {
   /// Creates an engine whose characters take [fadeSeconds] to finish their
   /// entrance.
-  RevealEngine({this.fadeSeconds = 0.25})
-    : assert(fadeSeconds >= 0, 'fadeSeconds must not be negative');
+  RevealEngine({
+    this.fadeSeconds = 0.25,
+    this.maxLagSeconds = defaultMaxLagSeconds,
+    this.fastForwardSeconds = defaultFastForwardSeconds,
+  }) : assert(fadeSeconds >= 0, 'fadeSeconds must not be negative'),
+       assert(maxLagSeconds > 0, 'maxLagSeconds must be positive'),
+       assert(fastForwardSeconds > 0, 'fastForwardSeconds must be positive');
+
+  /// [maxLagSeconds] unless an engine is given its own.
+  static const double defaultMaxLagSeconds = 0.4;
+
+  /// [fastForwardSeconds] unless an engine is given its own.
+  static const double defaultFastForwardSeconds = 0.15;
 
   /// Longest the reveal may lag behind the text it has been given.
-  static const double maxLagSeconds = 0.4;
+  ///
+  /// Small values keep the reveal on the model's heels, so a fast model sets
+  /// the pace. Larger values let the reveal hold closer to the baseline speed
+  /// and catch up gradually, at the cost of finishing later than the text.
+  final double maxLagSeconds;
 
   /// Window the remainder is revealed over once streaming has finished.
-  static const double fastForwardSeconds = 0.15;
+  ///
+  /// Set it to [maxLagSeconds] for an end of stream that changes nothing
+  /// about the pace.
+  final double fastForwardSeconds;
 
   /// The smallest number of characters that can be mid-entrance at once —
   /// what every engine starts with.

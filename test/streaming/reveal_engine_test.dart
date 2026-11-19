@@ -15,8 +15,16 @@ void main() {
       final engine = RevealEngine();
       // 1000 characters waiting, baseline 100/s: at the baseline this would
       // take ten seconds. It must clear the backlog inside the lag window.
-      engine.tick(RevealEngine.maxLagSeconds, 1000, 100);
+      engine.tick(RevealEngine.defaultMaxLagSeconds, 1000, 100);
       expect(engine.revealedFloor, 1000);
+    });
+
+    test('a longer lag lets the reveal trail at a gentler speed', () {
+      final engine = RevealEngine(maxLagSeconds: 4);
+      // 1000 waiting with a 4s lag: speed is 1000 / 4 = 250/s, so 0.4s shows
+      // 100 rather than the whole backlog the default lag would.
+      engine.tick(0.4, 1000, 100);
+      expect(engine.revealedFloor, 100);
     });
 
     test('never overshoots the text it was given', () {
@@ -131,8 +139,16 @@ void main() {
     test('clears the remainder within the catch-up window', () {
       final engine = RevealEngine();
       engine.beginFastForward();
-      engine.tick(RevealEngine.fastForwardSeconds, 5000, 10);
+      engine.tick(RevealEngine.defaultFastForwardSeconds, 5000, 10);
       expect(engine.revealedFloor, 5000);
+    });
+
+    test('a longer finish window keeps the remainder paced', () {
+      final engine = RevealEngine(fastForwardSeconds: 2);
+      engine.beginFastForward();
+      // 1000 left over 2s: 500/s, so a quarter second shows 125.
+      engine.tick(0.25, 1000, 10);
+      expect(engine.revealedFloor, 125);
     });
 
     test('is cleared when more text arrives after all', () {
@@ -141,7 +157,7 @@ void main() {
       engine.clearFastForward();
       // Back to the slower lag window, so a large backlog is not cleared in
       // the shorter fast-forward time.
-      engine.tick(RevealEngine.fastForwardSeconds, 5000, 10);
+      engine.tick(RevealEngine.defaultFastForwardSeconds, 5000, 10);
       expect(engine.revealedFloor, lessThan(5000));
     });
   });

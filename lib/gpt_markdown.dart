@@ -170,7 +170,10 @@ class GptMarkdown extends StatelessWidget {
     this.isStreaming = true,
     this.charactersPerSecond = 300,
     this.revealFadeSeconds = 0.25,
+    this.revealMaxLagSeconds = RevealEngine.defaultMaxLagSeconds,
+    this.revealFinishSeconds = RevealEngine.defaultFastForwardSeconds,
     this.revealStyleBuilder,
+    this.onRevealComplete,
     this.blockAnimationDuration = const Duration(milliseconds: 200),
     this.blockAnimationCurve = Curves.easeOut,
     this.useDollarSignsForLatex = false,
@@ -614,6 +617,22 @@ class GptMarkdown extends StatelessWidget {
   /// [GptMarkdownAnimation.typewriter], whose characters are final on arrival.
   final double revealFadeSeconds;
 
+  /// Longest the reveal may trail the text received so far, in seconds.
+  ///
+  /// When the text arrives faster than [charactersPerSecond], the reveal
+  /// speeds up just enough to stay within this lag. The default keeps it on
+  /// the model's heels, so a fast model sets the pace; a few seconds lets it
+  /// hold closer to [charactersPerSecond] and catch up gradually.
+  final double revealMaxLagSeconds;
+
+  /// How long the reveal takes to show what is left once [isStreaming] turns
+  /// false, in seconds.
+  ///
+  /// The default lands the rest almost at once. Set it to
+  /// [revealMaxLagSeconds] for an end of stream that does not change the
+  /// pace.
+  final double revealFinishSeconds;
+
   /// Draws characters mid-entrance in a style of your own, in place of the
   /// one [animation] gives them.
   ///
@@ -639,6 +658,20 @@ class GptMarkdown extends StatelessWidget {
   /// )
   /// ```
   final RevealStyleBuilder? revealStyleBuilder;
+
+  /// Called once the reveal has nothing left to show after [isStreaming]
+  /// turned false: every character is on screen and has finished its
+  /// entrance.
+  ///
+  /// Use it to keep something that accompanies the reveal, such as an
+  /// overlay drawn over the arriving text, until the reveal is over rather
+  /// than only until the stream is. Called once per finished reply, after the
+  /// frame, and also when the document renders whole with no reveal at all
+  /// (no [animation], reduced motion, or text present at mount).
+  ///
+  /// Not called on the legacy pipeline that custom `components` or
+  /// `inlineComponents` select.
+  final VoidCallback? onRevealComplete;
 
   /// How long [blockAnimation] takes.
   final Duration blockAnimationDuration;
@@ -798,7 +831,10 @@ class GptMarkdown extends StatelessWidget {
             revealing: _usesSpanReveal,
             charactersPerSecond: charactersPerSecond,
             revealFadeSeconds: revealFadeSeconds,
+            revealMaxLagSeconds: revealMaxLagSeconds,
+            revealFinishSeconds: revealFinishSeconds,
             revealStyleBuilder: revealStyleBuilder,
+            onRevealComplete: onRevealComplete,
             blockAnimationDuration: blockAnimationDuration,
             blockAnimationCurve: blockAnimationCurve,
             holdMathDollars: dollarsAreMath,
